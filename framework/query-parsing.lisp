@@ -147,3 +147,29 @@
     (value object)
   (declare (ignore object))
   (format nil "~A" (parse-integer (cl-ppcre:scan-to-strings "-?\\d+" value))))
+
+;; needed for westtoer
+
+(define-typed-literal-importer "https://www.w3.org/2001/XMLSchema#double"
+    (value object)
+  (declare (ignore object))
+  (if (stringp value)
+      (read-from-string value)
+      value))
+
+(define-typed-literal-importer "http://www.w3.org/2000/01/rdf-schema#string"
+    (value object)
+  (declare (ignore object))
+  value)
+
+(define-typed-literal-importer "http://www.w3.org/2000/01/rdf-schema#integer"
+    (value object)
+  (declare (ignore object))
+  (if (stringp value)
+      (read-from-string value)
+      value))
+
+(define-typed-literal-importer "http://www.w3.org/2001/XMLSchema#anyURI"
+    (value object)
+  (declare (ignore object))
+  value)

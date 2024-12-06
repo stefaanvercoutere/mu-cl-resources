@@ -59,7 +59,38 @@
               collect (s-str (jsown:val obj "content")
                              (jsown:val obj "language")))))
   (:method ((slot resource-slot) (type (eql :boolean)) value)
-    (s-from-json value)))
+    (s-from-json value))
+
+
+  ;; New method for xsd:uri
+  (:method ((slot resource-slot) (type (eql :uri)) value)
+    (s-typed value (s-prefix "xsd:anyURI")))
+    
+  ;; New method for xsd:double
+  (:method ((slot resource-slot) (type (eql :double)) value)
+    (s-typed (princ-to-string (coerce value 'double-float))
+             (s-prefix "xsd:double")))
+
+
+  ;; New method for xsd-secure:double
+  (:method ((slot resource-slot) (type (eql :xsd-secure-double)) value)
+    (s-typed (princ-to-string (coerce value 'double-float))
+             (s-prefix "xsd-secure:double")))
+
+  ;; New method for rdfs:string
+  (:method ((slot resource-slot) (type (eql :rdfs-string)) value)
+    (s-typed (princ-to-string value)
+             (s-prefix "rdfs:string")))
+             
+  ;; New method for rdfs:integer
+  (:method ((slot resource-slot) (type (eql :rdfs-integer)) value)
+    (let ((simple-number (if (typep value 'integer)
+                             value
+                             (round value))))
+      (s-typed (princ-to-string simple-number)
+               (s-prefix "rdfs:integer")))))
+
+
 
 (defgeneric interpret-json-string (slot string)
   (:documentation "Interprets a string as if it contained content
