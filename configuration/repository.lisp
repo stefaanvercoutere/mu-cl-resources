@@ -34,4 +34,4 @@
 ;; additioned needed for westtoer
 
 (add-prefix "xsd-secure" "https://www.w3.org/2001/XMLSchema#")
-(add-prefix "rdfs" "<http://www.w3.org/2000/01/rdf-schema#")
+(add-prefix "rdfs" "http://www.w3.org/2000/01/rdf-schema#")
