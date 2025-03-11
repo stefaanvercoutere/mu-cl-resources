@@ -1,5 +1,72 @@
 (in-package :mu-cl-resources)
 
+
+(defun slot-definition-type (slot)
+  "Returns the data type of the given SLOT, specifically for instances of resource-slot.
+   Defaults to :string if the type is not found or slot is not a resource-slot."
+  (if (typep slot 'resource-slot)
+      (let ((datatype (ignore-errors (resource-type slot)))) ; Safely retrieve resource-type
+        (or datatype :string)) ; Default to :string if resource-type is nil
+      :string))  ; Default for non-resource-slot objects
+
+
+(defun convert-to-literal (slot value)
+  "Converts VALUE into a SPARQL literal with appropriate XSD type based on SLOT's data type."
+  (let ((datatype (slot-definition-type slot)))
+    (format t "~%[DEBUG] Converting value to literal. Slot type: ~A, Value: ~A~%" datatype value)
+    (let ((literal (format-sparql-literal value datatype)))
+      (format t "[DEBUG] Generated SPARQL literal: ~A~%" literal)
+      literal)))
+
+; to-do fix xsd:secure-double (should be xsd-secure:double but not wanting to update it mu-cl-resources as well for the time being)
+(defun prefixed-datatype-string (datatype)
+  "Returns the prefixed datatype string for DATATYPE, or NIL if not found."
+  (cdr (assoc datatype
+              '((:string            . "xsd:string")
+                (:integer           . "xsd:integer")
+                (:boolean           . "xsd:boolean")
+                (:datetime          . "xsd:dateTime")
+                (:time              . "xsd:time")
+                (:date              . "xsd:date")
+                (:g-year            . "xsd:gYear")
+                (:geometry          . "geo:wktLiteral")
+                (:float             . "xsd:float")
+                (:number            . "xsd:decimal")
+                (:double            . "xsd:double")
+                (:xsd-secure-double . "<https://www.w3.org/2001/XMLSchema#double>")
+                (:rdfs-string       . "rdfs:string")
+                (:rdfs-integer      . "rdfs:integer"))
+              :test #'eq)))
+
+(defun format-sparql-literal (value datatype &optional lang)
+  "Formats VALUE as a SPARQL literal using a prefixed datatype if available.
+For :language-string, appends the language tag (defaulting to \"nl\").
+For known XSD/RDFS types, uses the appropriate prefix without angle brackets.
+For unknown types, returns an untyped literal."
+  (let* ((formatted-value (format-value-for-datatype value datatype))
+         (prefixed (prefixed-datatype-string datatype)))
+    (cond
+      ((eq datatype :language-string)
+       (format nil "\"\"\"~A\"\"\"@~A" formatted-value (or lang "nl")))
+      (prefixed
+       (format nil "\"\"\"~A\"\"\"^^~A" formatted-value prefixed))
+      (t
+       (format nil "\"\"\"~A\"\"\"" formatted-value)))))
+
+(defun format-value-for-datatype (value datatype)
+  "Formats VALUE based on DATATYPE requirements."
+  (case datatype
+    (:boolean (string-downcase value))
+    (otherwise value)))
+
+(defun cache-clear-json-path (resource json-path)
+  "Clears any cached entries associated with the given JSON path on RESOURCE.
+JSON-PATH is the portion of the resource's JSON structure for which the cache should be invalidated.
+This is a stub implementation—replace it with your actual cache clearing logic."
+  (declare (ignore resource json-path))
+  ;; Implement your cache invalidation here.
+  nil)
+
 (defun try-parse-number (entity)
   "Tries to parse the number, returns nil if no number could be found."
   (handler-case
@@ -184,7 +251,7 @@
 
 (defun resource-link-combinations-for-json-path (resource json-relations)
   "Collects source resource and link combinations for the source resource and json relations. 
-Yields the last target resource as second value."
+  Yields the last target resource as second value."
   (let ((current-resource resource)
         resource-link-list)
     (dolist (json-relation json-relations)
@@ -194,12 +261,13 @@ Yields the last target resource as second value."
     (values (reverse resource-link-list) current-resource)))
 
 (defun sparql-pattern-filter-string (resource source-variable &key components search)
-  "Constructs the sparql pattern for a filter constraint."
+  "Constructs the SPARQL pattern for a filter constraint.
+  RESOURCE is the current resource definition, SOURCE-VARIABLE is the SPARQL variable from which
+  filtering begins, COMPONENTS is the list of filter path components, and SEARCH is the search string."
   (let ((search-var (s-genvar "search"))
         (last-component (car (last components))))
     (labels ((smart-filter-p (pattern)
-               "Returns non-nil if the supplied match is the operation specified
-              in the last filter component."
+               "Returns non-nil if the last filter component matches the supplied PATTERN."
                (eql 0 (search pattern last-component)))
              (comparison-filter (pattern comparator)
                (cache-clear-json-path resource (butlast components))
@@ -212,21 +280,12 @@ Yields the last target resource as second value."
                            pattern
                            target-variable
                            comparator
-                           (interpret-json-string last-slot search)))))
-             (cache-clear-json-path (resource json-components)
-               (cache-clear-relation-json-path resource json-components)
-               (multiple-value-bind (resource-link-list target-resource)
-                   (resource-link-combinations-for-json-path resource json-components)
-                 (declare (ignore resource-link-list))
-                 (cache-class target-resource))))
+                           (interpret-json-string last-slot search))))))
       (cond
-        ;; search for ids
+        ;; Filter for IDs
         ((and (or (deprecated (:silent "Use [:id:] instead.")
                     (string= "id" last-component))
                   (string= ":id:" last-component)))
-         ;; NOTE: id can't change and will exist from the get-go, hence
-         ;; the relation must be set for this to yield a different
-         ;; answer
          (cache-clear-relation-json-path resource (butlast components))
          (let ((search-components (mapcar #'s-str (split-sequence:split-sequence #\, search))))
            (multiple-value-bind (sparql-pattern target-variable last-slot slots)
@@ -236,12 +295,8 @@ Yields the last target resource as second value."
                      sparql-pattern
                      target-variable search-var
                      search-var search-components))))
-        ;; search for url
+        ;; Filter for URIs
         ((string= ":uri:" last-component)
-         ;; NOTE: URI can't change and will exist from the get-go, hence
-         ;; the relation must be set for this to yield a different
-         ;; answer.  Extra complexity occurs in order to match url
-         ;; properties.
          (if (> (length components) 1)
              (let* ((slots (slots-for-filter-components resource (butlast components)))
                     (last-slot (first (reverse slots)))
@@ -257,7 +312,7 @@ Yields the last target resource as second value."
                          target-variable (s-url search))))
              (format nil "VALUES ~A { ~A } ~&"
                      source-variable (s-url search))))
-        ;; exact search
+        ;; Exact search branch: use convert-to-literal to attach xsd:string when appropriate.
         ((smart-filter-p ":exact:")
          (cache-clear-json-path resource (butlast components))
          (let ((last-property (subseq last-component (length ":exact:"))))
@@ -266,21 +321,24 @@ Yields the last target resource as second value."
              (declare (ignore slots))
              (let* ((last-resource (if last-slot (referred-resource last-slot) resource))
                     (property-slot (resource-slot-by-json-key last-resource last-property)))
+
+               (format t "~%[DEBUG] :exact: case~%")
+               (format t "  Last property: ~A~%" last-property)
+               (format t "  Property slot: ~A~%" property-slot)
+
                (format nil "~A ~A ~{~A~^/~} ~A.~&"
                        sparql-pattern
-                       target-variable (ld-property-list property-slot) (interpret-json-string property-slot search))))))
-        ;; comparison searches
+                       target-variable (ld-property-list property-slot)
+                       (convert-to-literal property-slot search))))))
+        ;; Comparison filters
         ((smart-filter-p ":gt:") (comparison-filter ":gt:" ">"))
         ((smart-filter-p ":lt:") (comparison-filter ":lt:" "<"))
         ((smart-filter-p ":gte:") (comparison-filter ":gte:" ">="))
         ((smart-filter-p ":lte:") (comparison-filter ":lte:" "<="))
-        ;; has-no
+        ;; has-no filter
         ((smart-filter-p ":has-no:")
          (let ((new-components (append (butlast components)
                                        (list (subseq last-component (length ":has-no:"))))))
-           ;; NOTE: although the readme currently indicates this is only
-           ;; supported for relations, the last element is in practice
-           ;; sometimes an attribute.
            (multiple-value-bind (sparql-pattern target-variable last-slot slots)
                (sparql-pattern-for-filter-components source-variable resource new-components nil)
              (declare (ignore target-variable slots))
@@ -288,13 +346,10 @@ Yields the last target resource as second value."
                  (cache-clear-relation-json-path resource new-components)
                  (cache-clear-json-path resource (butlast new-components)))
              (format nil "FILTER( NOT EXISTS {~&~T~T~A~&~T} )~&" sparql-pattern))))
-        ;; has
+        ;; has filter
         ((smart-filter-p ":has:")
          (let ((new-components (append (butlast components)
                                        (list (subseq last-component (length ":has:"))))))
-           ;; NOTE: although the readme currently indicates this is only
-           ;; supported for relations, the last element is in practice
-           ;; sometimes an attribute.
            (multiple-value-bind (sparql-pattern target-variable last-slot slots)
                (sparql-pattern-for-filter-components source-variable resource new-components nil)
              (declare (ignore target-variable slots))
@@ -302,7 +357,7 @@ Yields the last target resource as second value."
                  (cache-clear-relation-json-path resource new-components)
                  (cache-clear-json-path resource (butlast new-components)))
              (format nil "FILTER( EXISTS {~&~T~T~A~&~T} )~&" sparql-pattern))))
-        ;; not
+        ;; not filter
         ((smart-filter-p ":not:")
          (let ((last-property (subseq last-component (length ":not:"))))
            (multiple-value-bind (sparql-pattern target-variable last-slot slots)
@@ -312,9 +367,9 @@ Yields the last target resource as second value."
                     (property-slot (resource-slot-by-json-key last-resource last-property)))
                (format nil "FILTER( NOT EXISTS { ~A ~A ~A ~A. } )"
                        sparql-pattern
-                       target-variable (ld-property-list property-slot) (interpret-json-string property-slot search))))))
-        ;; standard semi-fuzzy search
-        ;; PPFFC: TARGET VALUE=VALUE
+                       target-variable (ld-property-list property-slot)
+                       (interpret-json-string property-slot search))))))
+        ;; Standard semi-fuzzy search
         (t
          (multiple-value-bind (sparql-pattern target-variable last-slot slots)
              (sparql-pattern-for-filter-components source-variable resource components t)
@@ -326,6 +381,7 @@ Yields the last target resource as second value."
            (format nil "~A FILTER CONTAINS(LCASE(str(~A)), LCASE(~A)) ~&"
                    sparql-pattern
                    target-variable (s-str search))))))))
+
 
 (defun extract-filters-from-request ()
   "Extracts the filters from the request.  The result is a list
@@ -342,7 +398,7 @@ Yields the last target resource as second value."
                    :search
                    value)))
 
-(let ((or-scanner (cl-ppcre:create-scanner "^:or:" :single-line-mode t)))
+ (let ((or-scanner (cl-ppcre:create-scanner "^:or:" :single-line-mode t)))
   (defun group-filters (filters)
     "Groups filters as added to the search to make sure AND and OR is
   understood correctly."

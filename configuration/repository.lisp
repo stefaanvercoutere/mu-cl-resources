@@ -29,9 +29,8 @@
 
 (add-prefix "ext" "http://mu.semte.ch/vocabularies/ext/")
 
-(add-prefix "mu" "http://mu.semte.ch/vocabularies/core/")
+(add-prefix "mu" "http://mu.semte.ch/vocabularies/core/"Z)
 
 ;; additioned needed for westtoer
 
 (add-prefix "xsd-secure" "https://www.w3.org/2001/XMLSchema#")
-(add-prefix "rdfs" "http://www.w3.org/2000/01/rdf-schema#")
