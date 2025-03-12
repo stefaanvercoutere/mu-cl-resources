@@ -33,7 +33,7 @@
                 (:float             . "xsd:float")
                 (:number            . "xsd:decimal")
                 (:double            . "xsd:double")
-                (:xsd-secure-double . "<https://www.w3.org/2001/XMLSchema#double>")
+                (:xsd-secure-double . "xsd-secure:double")
                 (:rdfs-string       . "rdfs:string")
                 (:rdfs-integer      . "rdfs:integer"))
               :test #'eq)))
